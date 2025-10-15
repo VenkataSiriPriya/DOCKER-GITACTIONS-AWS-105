@@ -1,0 +1,55 @@
+name: CI/CD to AWS EC2 Instance with Docker
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_SECRET }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./STUDENTAPI-SPRINGBOOT
+          file: ./STUDENTAPI-SPRINGBOOT/backend.Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USER }}/dockeraws-backend:latest
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./STUDENTAPI-REACT
+          file: ./STUDENTAPI-REACT/frontend.Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USER }}/dockeraws-frontend:latest
+
+      - name: Save EC2 private key
+        run: |
+          echo "${{ secrets.AWS_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+
+      - name: Deploy to AWS EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ec2-user@${{ secrets.AWS_IP }} << 'EOF'
+            cd DOCKER-GITACTIONS-AWS-105 || git clone https://github.com/${{ github.repository }}.git
+            cd DOCKER-GITACTIONS-AWS-105
+            git pull origin main
+            sudo docker-compose down
+            sudo docker-compose pull
+            sudo docker-compose up -d --build
+          EOF
